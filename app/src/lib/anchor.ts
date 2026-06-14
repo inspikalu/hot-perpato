@@ -33,6 +33,7 @@ export function useProgram(
     const connection = new web3.Connection(SOLANA_DEVNET_RPC);
     const provider = new AnchorProvider(connection, anchorWallet as any, {
       commitment: "confirmed",
+      skipPreflight: true,
     });
     return new Program<HotPerp>(idl as HotPerp, provider as any);
   }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
