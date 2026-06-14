@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("/fonts/PressStart2P.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme inline {
+  --color-pixel-white: #f0f0f0;
+  --color-pixel-black: #1a1a2e;
+  --color-pixel-dark: #16213e;
+  --color-pixel-red: #ff4343;
+  --color-pixel-blue: #00a2ff;
+  --color-pixel-green: #00ff85;
+  --color-pixel-yellow: #ffd700;
+  --color-pixel-orange: #ff6b35;
+  --color-pixel-purple: #9b59b6;
+  --color-pixel-pink: #ff6b9d;
+  --color-pixel-grey: #4a4a6a;
+  --color-pixel-light: #2a2a4a;
+  --font-pixel: "Press Start 2P", monospace;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-pixel-black);
+    color: var(--color-pixel-white);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
+@layer utilities {
+  .pixel-border {
+    box-shadow:
+      inset -4px -4px 0 0 rgba(0, 0, 0, 0.3),
+      inset 4px 4px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 2px var(--color-pixel-grey);
+  }
+
+  .pixel-border-sm {
+    box-shadow:
+      inset -2px -2px 0 0 rgba(0, 0, 0, 0.3),
+      inset 2px 2px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 1px var(--color-pixel-grey);
+  }
+
+  .pixel-border-red {
+    box-shadow:
+      inset -4px -4px 0 0 rgba(0, 0, 0, 0.3),
+      inset 4px 4px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 2px var(--color-pixel-red);
+  }
+
+  .pixel-border-green {
+    box-shadow:
+      inset -4px -4px 0 0 rgba(0, 0, 0, 0.3),
+      inset 4px 4px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 2px var(--color-pixel-green);
+  }
+
+  .pixel-border-blue {
+    box-shadow:
+      inset -4px -4px 0 0 rgba(0, 0, 0, 0.3),
+      inset 4px 4px 0 0 rgba(255, 255, 255, 0.1),
+      0 0 0 2px var(--color-pixel-blue);
+  }
+
+  .pixel-btn {
+    box-shadow:
+      inset -4px -4px 0 0 rgba(0, 0, 0, 0.3),
+      inset 4px 4px 0 0 rgba(255, 255, 255, 0.15);
+    transition: all 0.05s step-start;
+  }
+
+  .pixel-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow:
+      inset 4px 4px 0 0 rgba(0, 0, 0, 0.3),
+      inset -2px -2px 0 0 rgba(255, 255, 255, 0.1);
+  }
+
+  .scanlines {
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.08) 2px,
+      rgba(0, 0, 0, 0.08) 4px
+    );
+  }
+
+  .text-shadow-pixel {
+    text-shadow:
+      2px 2px 0 var(--color-pixel-dark),
+      -1px -1px 0 var(--color-pixel-dark);
+  }
+
+  .health-bar-bg {
+    background: repeating-linear-gradient(
+      90deg,
+      var(--color-pixel-dark),
+      var(--color-pixel-dark) 4px,
+      var(--color-pixel-light) 4px,
+      var(--color-pixel-light) 8px
+    );
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+target/
+app/.next/
+.env
+*.local
+*keypair.json
+.DS_Store

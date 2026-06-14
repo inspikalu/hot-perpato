@@ -1,0 +1,20 @@
+{
+  "name": "hot-perp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "anchor test"
+  },
+  "devDependencies": {
+    "@anchor-lang/core": "^1.0.2",
+    "@types/chai": "^4",
+    "@types/mocha": "^10",
+    "chai": "^4",
+    "mocha": "^10",
+    "ts-mocha": "^10",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4"
+  }
+}
