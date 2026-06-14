@@ -10,7 +10,7 @@ export default function GamePage() {
   const params = useParams();
   const gameId = typeof params.id === "string" ? params.id : "";
   const {
-    phase, currentHolder, timer, round, totalRounds,
+    phase, currentHolder, timer, round, totalRounds, maxPlayers,
     players, solPrice, positionPnl, showExplosion, explodedPlayer,
     isHolding, isAuthority, hasJoined, gameNotFound, joinGame, startRound, passPotato,
     connected, wallet, gameAddress,
@@ -73,14 +73,14 @@ export default function GamePage() {
           <p className="font-pixel text-xs text-pixel-yellow mb-2">
             {players.length === 0 && !gameNotFound
               ? "CONNECT WALLET TO PLAY"
-              : `WAITING FOR PLAYERS (${players.length}/4)`}
+              : `WAITING FOR PLAYERS (${players.length}/${maxPlayers})`}
           </p>
 
           {!connected && (
             <p className="font-pixel text-[8px] text-pixel-grey">CONNECT YOUR WALLET ABOVE</p>
           )}
 
-          {connected && !hasJoined && players.length < 4 && (
+          {connected && !hasJoined && players.length < maxPlayers && (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}

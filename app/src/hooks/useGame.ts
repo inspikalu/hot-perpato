@@ -50,12 +50,14 @@ export function useGame(gameId: string) {
   const [explodedPlayer, setExplodedPlayer] = useState<number | null>(null);
   const [gameAddress, setGameAddress] = useState<string | null>(null);
   const [authority, setAuthority] = useState<string | null>(null);
+  const [maxPlayers, setMaxPlayers] = useState(4);
   const [gameNotFound, setGameNotFound] = useState(false);
 
   const authorityPubkeyRef = useRef<web3.PublicKey | null>(null);
   const gamePdaRef = useRef<web3.PublicKey | null>(null);
   const pollingRef = useRef(false);
   const prevPhaseRef = useRef<GamePhase>("waiting");
+  const failCountRef = useRef(0);
 
   // Parse gameId as authority public key
   useEffect(() => {
@@ -99,6 +101,7 @@ export function useGame(gameId: string) {
         setCurrentHolder(game.currentHolder);
         setRound(game.round);
         setTotalRounds(game.config.totalRounds);
+        setMaxPlayers(game.config.maxPlayers);
 
         const mapped: Player[] = game.players.map((p: any, i: number) => ({
           id: i,
@@ -112,6 +115,7 @@ export function useGame(gameId: string) {
         }));
         setPlayers(mapped);
 
+        failCountRef.current = 0;
         setGameNotFound(false);
 
         // Timer from deadline
@@ -121,7 +125,8 @@ export function useGame(gameId: string) {
           setTimer(remaining);
         }
       } catch (err) {
-        setGameNotFound(true);
+        failCountRef.current++;
+        if (failCountRef.current >= 3) setGameNotFound(true);
       }
       pollingRef.current = false;
       if (mounted) setTimeout(poll, POLL_MS);
@@ -261,6 +266,7 @@ export function useGame(gameId: string) {
     timer,
     round,
     totalRounds,
+    maxPlayers,
     players,
     solPrice,
     positionPnl,
