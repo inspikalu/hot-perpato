@@ -146,18 +146,19 @@ pub struct JoinGame<'info> {
 #[derive(Accounts)]
 pub struct DelegateGame<'info> {
     pub payer: Signer<'info>,
-    /// CHECK: Game PDA to delegate - validated by delegation program
     #[account(mut, del)]
-    pub game: UncheckedAccount<'info>,
+    pub game: Account<'info, Game>,
 }
 
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegateEscrow<'info> {
     pub payer: Signer<'info>,
-    /// CHECK: Escrow token account to delegate - validated by delegation program
+    /// CHECK: Escrow token account to delegate
     #[account(mut, del)]
     pub escrow: UncheckedAccount<'info>,
+    #[account(seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
+    pub game: Account<'info, Game>,
 }
 
 #[derive(Accounts)]
@@ -282,9 +283,10 @@ pub mod hot_perp {
     }
 
     pub fn delegate_game(ctx: Context<DelegateGame>) -> Result<()> {
+        let game = &ctx.accounts.game;
         ctx.accounts.delegate_game(
             &ctx.accounts.payer,
-            &[GAME_SEED, ctx.accounts.game.key().as_ref()],
+            &[GAME_SEED, game.authority.as_ref(), &game.game_id.to_le_bytes()],
             DelegateConfig {
                 validator: ctx.remaining_accounts.first().map(|acc| acc.key()),
                 commit_frequency_ms: 10_000,
@@ -294,9 +296,10 @@ pub mod hot_perp {
     }
 
     pub fn delegate_escrow(ctx: Context<DelegateEscrow>) -> Result<()> {
+        let game = &ctx.accounts.game;
         ctx.accounts.delegate_escrow(
             &ctx.accounts.payer,
-            &[ESCROW_SEED, ctx.accounts.escrow.key().as_ref()],
+            &[ESCROW_SEED, game.key().as_ref()],
             DelegateConfig {
                 validator: ctx.remaining_accounts.first().map(|acc| acc.key()),
                 commit_frequency_ms: 30_000,
