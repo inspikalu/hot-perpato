@@ -16,6 +16,7 @@ pub const ROUND_TIME: i64 = 30;
 #[account]
 pub struct Game {
     pub authority: Pubkey,
+    pub game_id: u64,
     pub players: Vec<Player>,
     pub state: GameState,
     pub config: GameConfig,
@@ -26,7 +27,7 @@ pub struct Game {
 
 impl Game {
     pub fn size(max_players: u8) -> usize {
-        8 + 32 + 4 + (max_players as usize) * Player::SIZE + 1 + GameConfig::SIZE + 1 + 1 + 8
+        8 + 32 + 8 + 4 + (max_players as usize) * Player::SIZE + 1 + GameConfig::SIZE + 1 + 1 + 8
     }
 }
 
@@ -59,6 +60,7 @@ pub enum StakeMode {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct GameConfig {
+    pub game_id: u64,
     pub max_players: u8,
     pub total_rounds: u8,
     pub stake_mode: StakeMode,
@@ -66,7 +68,7 @@ pub struct GameConfig {
 }
 
 impl GameConfig {
-    pub const SIZE: usize = 1 + 1 + 1 + 8;
+    pub const SIZE: usize = 8 + 1 + 1 + 1 + 8;
 }
 
 #[error_code]
@@ -118,12 +120,13 @@ pub struct RoundStartEvent {
 // ── Base Layer Contexts (L1) ──
 
 #[derive(Accounts)]
+#[instruction(config: GameConfig)]
 pub struct CreateGame<'info> {
     #[account(
-        init_if_needed,
+        init,
         payer = user,
         space = 8 + Game::size(MAX_PLAYERS as u8),
-        seeds = [GAME_SEED, user.key().as_ref()],
+        seeds = [GAME_SEED, user.key().as_ref(), &config.game_id.to_le_bytes()],
         bump
     )]
     pub game: Account<'info, Game>,
@@ -134,7 +137,7 @@ pub struct CreateGame<'info> {
 
 #[derive(Accounts)]
 pub struct JoinGame<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     pub player: Signer<'info>,
 }
@@ -159,7 +162,7 @@ pub struct DelegateEscrow<'info> {
 
 #[derive(Accounts)]
 pub struct DepositBuyIn<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     #[account(mut)]
     /// CHECK: Player's USDC token account
@@ -175,34 +178,34 @@ pub struct DepositBuyIn<'info> {
 
 #[derive(Accounts)]
 pub struct StartRound<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
 pub struct PassPotato<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     pub player: Signer<'info>,
 }
 
 #[derive(Accounts)]
 pub struct ExplodePotato<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
 }
 
 #[derive(Accounts)]
 pub struct EndRound<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
 pub struct GetGameState<'info> {
-    #[account(seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
 }
 
@@ -211,7 +214,7 @@ pub struct GetGameState<'info> {
 #[action]
 #[derive(Accounts)]
 pub struct PayoutWinner<'info> {
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     #[account(mut)]
     /// CHECK: Escrow token account - validated by program logic
@@ -227,7 +230,7 @@ pub struct PayoutWinner<'info> {
 pub struct CommitAndPayout<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref()], bump)]
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     #[account(mut)]
     /// CHECK: Escrow token account
@@ -249,6 +252,7 @@ pub mod hot_perp {
     pub fn create_game(ctx: Context<CreateGame>, config: GameConfig) -> Result<()> {
         let game = &mut ctx.accounts.game;
         game.authority = ctx.accounts.user.key();
+        game.game_id = config.game_id;
         game.state = GameState::Waiting;
         game.config = config;
         game.current_holder = 0;

@@ -17,6 +17,7 @@ export default function Lobby() {
   const [stakeMode, setStakeMode] = useState<StakeMode>("free");
   const [players, setPlayers] = useState(4);
   const [rounds, setRounds] = useState(7);
+  const [gameId, setGameId] = useState(0);
   const [joinCode, setJoinCode] = useState("");
   const [bombExploded, setBombExploded] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -26,8 +27,9 @@ export default function Lobby() {
     if (!program || !adapter?.publicKey) return;
     setCreating(true);
     try {
-      const [pda] = gamePda(adapter.publicKey);
+      const [pda] = gamePda(adapter.publicKey, gameId);
       const config = {
+        gameId: new BN(gameId),
         maxPlayers: players,
         totalRounds: rounds,
         stakeMode: { free: {} },
@@ -42,14 +44,14 @@ export default function Lobby() {
         })
         .rpc();
 
-      return adapter.publicKey.toBase58();
+      return `${adapter.publicKey.toBase58()}:${gameId}`;
     } catch (err) {
       console.error("createGame failed:", err);
-      return solWallet?.publicKey?.toBase58();
+      return null;
     } finally {
       setCreating(false);
     }
-  }, [program, solWallet, players, rounds]);
+  }, [program, solWallet, players, rounds, gameId]);
 
   return (
     <div className="flex flex-col flex-1 items-center justify-center px-4 py-8 relative overflow-hidden">
@@ -106,20 +108,25 @@ export default function Lobby() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (joinCode.length >= 3) router.push(`/game/${joinCode}`);
+            if (joinCode.length >= 3) {
+              const parts = joinCode.replace(/\s/g, "").split(":");
+              const authority = parts[0];
+              const gid = parts[1] || "0";
+              router.push(`/game/${authority}/${gid}`);
+            }
           }}
           className="flex items-center gap-2 justify-center"
         >
           <input
             type="text"
-            placeholder="ENTER CODE"
-            maxLength={6}
+            placeholder="ENTER CODE (pubkey:game_id)"
+            maxLength={60}
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
             aria-label="Game code"
             autoComplete="off"
             spellCheck={false}
-            className="pixel-border-sm bg-pixel-dark px-4 py-3 font-pixel text-xs text-pixel-white text-center uppercase w-40 outline-none focus-visible:ring-2 focus-visible:ring-pixel-blue placeholder:text-pixel-grey"
+            className="pixel-border-sm bg-pixel-dark px-4 py-3 font-pixel text-xs text-pixel-white text-center uppercase w-52 outline-none focus-visible:ring-2 focus-visible:ring-pixel-blue placeholder:text-pixel-grey"
           />
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -224,11 +231,12 @@ export default function Lobby() {
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={async () => {
-                  const pubkey = await createGame();
-                  if (pubkey) {
+                  const code = await createGame();
+                  if (code) {
+                    const [pubkey, gid] = code.split(":");
                     setShowCreate(false);
                     setBombExploded(true);
-                    setTimeout(() => router.push(`/game/${pubkey}`), 800);
+                    setTimeout(() => router.push(`/game/${pubkey}/${gid}`), 800);
                   }
                 }}
                 disabled={creating || !solWallet.connected}

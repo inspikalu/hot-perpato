@@ -8,7 +8,9 @@ import { SideBetBar } from "@/components/SideBetBar";
 
 export default function GamePage() {
   const params = useParams();
-  const gameId = typeof params.id === "string" ? params.id : "";
+  const authority = typeof params.authority === "string" ? params.authority : "";
+  const gameCode = typeof params.gameCode === "string" ? params.gameCode : "0";
+  const gameId = `${authority}:${gameCode}`;
   const {
     phase, currentHolder, timer, round, totalRounds, maxPlayers,
     players, solPrice, positionPnl, showExplosion, explodedPlayer,
@@ -266,7 +268,7 @@ export default function GamePage() {
 
       {/* Game code + wallet display */}
       <div className="flex justify-between font-pixel text-[8px] text-pixel-grey mt-4">
-        <span>GAME: {gameId.slice(0, 8)}...</span>
+        <span>GAME: {authority.slice(0, 8)}... #{gameCode}</span>
         <span>{connected ? wallet?.slice(0, 8) + "..." : "DISCONNECTED"}</span>
       </div>
     </div>

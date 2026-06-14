@@ -52,6 +52,11 @@
                 "kind": "account",
                 "path": "game.authority",
                 "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "Game"
               }
             ]
           }
@@ -119,6 +124,10 @@
               {
                 "kind": "account",
                 "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "config.game_id"
               }
             ]
           }
@@ -518,6 +527,11 @@
                 "kind": "account",
                 "path": "game.authority",
                 "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "Game"
               }
             ]
           }
@@ -586,6 +600,11 @@
                 "kind": "account",
                 "path": "game.authority",
                 "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "Game"
               }
             ]
           }
@@ -637,6 +656,11 @@
                 "kind": "account",
                 "path": "game.authority",
                 "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "Game"
               }
             ]
           }
@@ -683,6 +707,11 @@
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "Game"
               }
             ]
@@ -734,6 +763,11 @@
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "Game"
               }
             ]
@@ -790,6 +824,11 @@
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "Game"
               }
             ]
@@ -897,6 +936,11 @@
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "Game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "Game"
               }
             ]
@@ -1054,6 +1098,10 @@
             "type": "pubkey"
           },
           {
+            "name": "game_id",
+            "type": "u64"
+          },
+          {
             "name": "players",
             "type": {
               "vec": {
@@ -1099,6 +1147,10 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "game_id",
+            "type": "u64"
+          },
           {
             "name": "max_players",
             "type": "u8"

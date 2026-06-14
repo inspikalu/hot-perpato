@@ -43,11 +43,17 @@ async function getBs58() {
 
 const PROGRAM_ID = new PublicKey("9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJeEV5w");
 const GAME_SEED = Buffer.from("hot_perp_game");
-const RPC = "https://api.devnet.solana.com";
+const DEVNET_RPC = "https://api.devnet.solana.com";
+const MAGIC_RPC = "https://devnet-router.magicblock.app";
 const COMMITMENT = "confirmed";
 
-function gamePda(authority: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([GAME_SEED, authority.toBuffer()], PROGRAM_ID);
+function gamePda(authority: PublicKey, gameId: number): [PublicKey, number] {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(gameId));
+  return PublicKey.findProgramAddressSync(
+    [GAME_SEED, authority.toBuffer(), buf],
+    PROGRAM_ID,
+  );
 }
 
 function makeWallet(kp: Keypair) {
@@ -61,13 +67,28 @@ function makeWallet(kp: Keypair) {
 async function sendAndConfirm(program: Program<HotPerp>, method: any, signer: Keypair, label: string) {
   try {
     const tx = await method.transaction();
-    const sig = await (program.provider as AnchorProvider).sendAndConfirm(tx, [signer]);
+    const conn = (program.provider as AnchorProvider).connection;
+    const sig = await conn.sendTransaction(tx, [signer], { skipPreflight: true, preflightCommitment: COMMITMENT });
+    await conn.confirmTransaction(sig, COMMITMENT);
     console.log(`  ✅ ${label}: ${sig}`);
     return sig;
   } catch (err: any) {
-    const logs = err.logs ? "\n    Logs: " + err.logs.slice(0, 8).join("\n    ") : "";
-    console.log(`  ❌ ${label}: ${(err.message ?? String(err)).slice(0, 400)}${logs}`);
+    const logs = err.logs ? "\n    Logs: " + err.logs.slice(0, 10).join("\n    ") : "";
+    const txLogs = err.transactionLogs ? "\n    TxLogs: " + err.transactionLogs.slice(0, 10).join("\n    ") : "";
+    const msg = err.message ?? JSON.stringify(err).slice(0, 500);
+    console.log(`  ❌ ${label}: ${msg}${logs}${txLogs}`);
     throw err;
+  }
+}
+
+async function retryFetch(program: Program<HotPerp>, addr: PublicKey, retries = 3): Promise<any> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await (program as any).account.game.fetch(addr);
+    } catch {
+      if (i === retries - 1) throw new Error(`Failed to fetch ${addr.toBase58()} after ${retries} attempts`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 }
 
@@ -105,7 +126,7 @@ async function main() {
     }
   }
   console.log(`Authority: ${authority.publicKey.toBase58()}`);
-  const conn = new Connection(RPC, COMMITMENT);
+  const conn = new Connection(DEVNET_RPC, COMMITMENT);
   const authBal = await conn.getBalance(authority.publicKey);
   console.log(`  Balance: ${authBal / LAMPORTS_PER_SOL} SOL`);
 
@@ -117,34 +138,46 @@ async function main() {
   }
 
   // ── Derive game PDA ──
-  const [pda] = gamePda(authority.publicKey);
-  console.log(`\nGame PDA: ${pda.toBase58()}`);
+  const gameId = 0;
+  const [pda] = gamePda(authority.publicKey, gameId);
+  console.log(`\nGame PDA: ${pda.toBase58()} (game #${gameId})`);
 
   // ── Create provider & program ──
-  const provider = new AnchorProvider(conn, makeWallet(authority), { commitment: COMMITMENT });
+  // Create program (using devnet connection, skipPreflight for reliability)
+  const provider = new AnchorProvider(
+    new Connection(DEVNET_RPC, COMMITMENT),
+    makeWallet(authority),
+    { commitment: COMMITMENT, skipPreflight: true },
+  );
   const program = new Program<HotPerp>(idl as HotPerp, provider as any);
 
-  const config = { maxPlayers: 4, totalRounds: 3, stakeMode: { free: {} }, buyInAmount: new BN(0) };
+  const config = { gameId: new BN(gameId), maxPlayers: 4, totalRounds: 3, stakeMode: { free: {} }, buyInAmount: new BN(0) };
 
   // ══════════════════════
   // 1. CREATE GAME
   // ══════════════════════
   console.log("\n── 1. Create Game ──");
   try {
-    await sendAndConfirm(program,
-      (program.methods as any).createGame(config).accounts({
-        game: pda, user: authority.publicKey, systemProgram: SystemProgram.programId,
-      }),
-      authority, "createGame");
-  } catch {
+    const tx = await (program.methods as any).createGame(config).accounts({
+      game: pda, user: authority.publicKey, systemProgram: SystemProgram.programId,
+    }).transaction();
+    const sig = await conn.sendTransaction(tx, [authority], { skipPreflight: true, preflightCommitment: COMMITMENT });
+    await conn.confirmTransaction(sig, COMMITMENT);
+    console.log(`  ✅ createGame: ${sig}`);
+  } catch (err: any) {
+    console.log(`  createGame error:`, err.message ?? err.logs ?? JSON.stringify(err));
     const existing = await conn.getAccountInfo(pda);
     if (!existing) { console.log("  Game account missing — aborting."); process.exit(1); }
     console.log("  (game already exists)");
   }
 
-  let game = await program.account.game.fetch(pda);
+  // Verify account exists before Anchor fetch
+  const info = await conn.getAccountInfo(pda);
+  console.log(`  Owner: ${info?.owner?.toBase58() ?? "NONE"}`);
+  if (!info) { console.log("  ❌ Game account not found after create — aborting"); process.exit(1); }
+
+  let game = await retryFetch(program, pda, 3);
   console.log(`  State: ${JSON.stringify(game.state)}, Players: ${game.players.length}`);
-  console.log(`  Owner: ${(await conn.getAccountInfo(pda))?.owner.toBase58()}`);
 
   // ══════════════════════
   // 2. JOIN GAME (base layer)
@@ -152,20 +185,23 @@ async function main() {
   console.log("\n── 2. Join Game ──");
   for (let i = 0; i < players.length; i++) {
     const player = players[i];
-    const pProvider = new AnchorProvider(conn, makeWallet(player), { commitment: COMMITMENT });
-    const pProgram = new Program<HotPerp>(idl as HotPerp, pProvider as any);
     try {
-      await sendAndConfirm(pProgram,
-        (pProgram.methods as any).joinGame().accounts({ game: pda, player: player.publicKey }),
-        player, `joinGame (player ${i})`);
+      const tx = await (program.methods as any).joinGame().accounts({
+        game: pda, player: player.publicKey,
+      }).transaction();
+      const sig = await conn.sendTransaction(tx, [player], { skipPreflight: true, preflightCommitment: COMMITMENT });
+      await conn.confirmTransaction(sig, COMMITMENT);
+      console.log(`  ✅ joinGame (player ${i}): ${sig}`);
     } catch (err: any) {
       if (err.message?.includes("AlreadyJoined")) {
         console.log(`  Player ${i} already joined`);
+      } else {
+        console.log(`  ❌ joinGame (player ${i}):`, err.message ?? err.logs ?? "unknown");
       }
     }
   }
 
-  game = await program.account.game.fetch(pda);
+  game = await retryFetch(program, pda, 3);
   console.log(`  Players in game: ${game.players.length}`);
 
   // ══════════════════════
@@ -174,11 +210,14 @@ async function main() {
   if (game.players.length >= 2) {
     console.log("\n── 3. Start Round ──");
     try {
-      await sendAndConfirm(program,
-        (program.methods as any).startRound().accounts({ game: pda, authority: authority.publicKey }),
-        authority, "startRound");
+      const tx = await (program.methods as any).startRound().accounts({
+        game: pda, authority: authority.publicKey,
+      }).transaction();
+      const sig = await conn.sendTransaction(tx, [authority], { skipPreflight: true, preflightCommitment: COMMITMENT });
+      await conn.confirmTransaction(sig, COMMITMENT);
+      console.log(`  ✅ startRound: ${sig}`);
     } catch (err: any) {
-      console.log("  startRound failed (may need specific game state):", (err.message ?? "").slice(0, 200));
+      console.log("  startRound failed:", err.message ?? err.logs ?? "unknown");
     }
     game = await program.account.game.fetch(pda);
     console.log(`  State: ${JSON.stringify(game.state)}, Round: ${game.round}, Holder: ${game.currentHolder}`);
@@ -192,14 +231,15 @@ async function main() {
       const holder = players[holderIdx];
       if (holder) {
         const target = holderIdx === 0 ? 1 : 0;
-        const hProvider = new AnchorProvider(conn, makeWallet(holder), { commitment: COMMITMENT });
-        const hProgram = new Program<HotPerp>(idl as HotPerp, hProvider as any);
         try {
-          await sendAndConfirm(hProgram,
-            (hProgram.methods as any).passPotato(target).accounts({ game: pda, player: holder.publicKey }),
-            holder, `passPotato ${holderIdx}→${target}`);
+          const tx = await (program.methods as any).passPotato(target).accounts({
+            game: pda, player: holder.publicKey,
+          }).transaction();
+          const sig = await conn.sendTransaction(tx, [holder], { skipPreflight: true, preflightCommitment: COMMITMENT });
+          await conn.confirmTransaction(sig, COMMITMENT);
+          console.log(`  ✅ passPotato ${holderIdx}→${target}: ${sig}`);
         } catch (err: any) {
-          console.log("  passPotato failed:", (err.message ?? "").slice(0, 200));
+          console.log("  passPotato failed:", err.message ?? err.logs ?? "unknown");
         }
         game = await program.account.game.fetch(pda);
         console.log(`  New holder: ${game.currentHolder}`);
@@ -218,11 +258,14 @@ async function main() {
         await new Promise((r) => setTimeout(r, wait * 1000));
       }
       try {
-        await sendAndConfirm(program,
-          (program.methods as any).explodePotato().accounts({ game: pda }),
-          authority, "explodePotato");
+        const tx = await (program.methods as any).explodePotato().accounts({
+          game: pda,
+        }).transaction();
+        const sig = await conn.sendTransaction(tx, [authority], { skipPreflight: true, preflightCommitment: COMMITMENT });
+        await conn.confirmTransaction(sig, COMMITMENT);
+        console.log(`  ✅ explodePotato: ${sig}`);
       } catch (err: any) {
-        console.log("  explodePotato failed:", (err.message ?? "").slice(0, 200));
+        console.log("  explodePotato failed:", err.message ?? err.logs ?? "unknown");
       }
       game = await program.account.game.fetch(pda);
       console.log(`  State: ${JSON.stringify(game.state)}`);
@@ -234,11 +277,14 @@ async function main() {
     if (game.state.exploded !== undefined) {
       console.log("\n── 6. End Round ──");
       try {
-        await sendAndConfirm(program,
-          (program.methods as any).endRound().accounts({ game: pda, authority: authority.publicKey }),
-          authority, "endRound");
+        const tx = await (program.methods as any).endRound().accounts({
+          game: pda, authority: authority.publicKey,
+        }).transaction();
+        const sig = await conn.sendTransaction(tx, [authority], { skipPreflight: true, preflightCommitment: COMMITMENT });
+        await conn.confirmTransaction(sig, COMMITMENT);
+        console.log(`  ✅ endRound: ${sig}`);
       } catch (err: any) {
-        console.log("  endRound failed:", (err.message ?? "").slice(0, 200));
+        console.log("  endRound failed:", err.message ?? err.logs ?? "unknown");
       }
       game = await program.account.game.fetch(pda);
       console.log(`  State: ${JSON.stringify(game.state)}`);

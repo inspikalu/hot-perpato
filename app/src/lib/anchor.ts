@@ -38,9 +38,10 @@ export function useProgram(
   }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
 }
 
-export function gamePda(authority: web3.PublicKey): [web3.PublicKey, number] {
+export function gamePda(authority: web3.PublicKey, gameId: number): [web3.PublicKey, number] {
+  const gameIdBuf = new BN(gameId).toArrayLike(Buffer, "le", 8);
   return web3.PublicKey.findProgramAddressSync(
-    [Buffer.from("hot_perp_game"), authority.toBuffer()],
+    [Buffer.from("hot_perp_game"), authority.toBuffer(), gameIdBuf],
     PROGRAM_ID,
   );
 }

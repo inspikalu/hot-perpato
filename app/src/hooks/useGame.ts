@@ -39,6 +39,10 @@ export function useGame(gameId: string) {
   const program = useProgram(solWallet);
   const walletStr = solWallet?.publicKey?.toBase58() ?? null;
 
+  // Parse gameId as "authority:game_code" or "authority/game_code"
+  const [authorityStr, gameCodeStr] = gameId.split(/[:/]/);
+  const gameCode = parseInt(gameCodeStr || "0", 10) || 0;
+
   const [players, setPlayers] = useState<Player[]>([]);
   const [phase, setPhase] = useState<GamePhase>("waiting");
   const [currentHolder, setCurrentHolder] = useState(0);
@@ -62,9 +66,9 @@ export function useGame(gameId: string) {
   // Parse gameId as authority public key
   useEffect(() => {
     try {
-      const pk = new web3.PublicKey(gameId);
+      const pk = new web3.PublicKey(authorityStr);
       authorityPubkeyRef.current = pk;
-      const [pda] = gamePda(pk);
+      const [pda] = gamePda(pk, gameCode);
       gamePdaRef.current = pda;
       setGameAddress(pda.toBase58());
       setAuthority(pk.toBase58());
@@ -188,7 +192,7 @@ export function useGame(gameId: string) {
 
   const connected = solWallet?.connected ?? false;
   const hasJoined = connected && players.some((p) => p.wallet === walletStr);
-  const isAuthority = connected && authority === walletStr;
+  const isAuthority = connected && authority === walletStr && authorityStr === walletStr;
 
   const isHolding = (playerId: number) =>
     phase === "active" && currentHolder === playerId;

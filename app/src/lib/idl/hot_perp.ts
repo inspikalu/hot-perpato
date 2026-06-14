@@ -58,6 +58,11 @@ export type HotPerp = {
                 "kind": "account",
                 "path": "game.authority",
                 "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "game"
               }
             ]
           }
@@ -125,6 +130,10 @@ export type HotPerp = {
               {
                 "kind": "account",
                 "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "config.game_id"
               }
             ]
           }
@@ -524,6 +533,11 @@ export type HotPerp = {
                 "kind": "account",
                 "path": "game.authority",
                 "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "game"
               }
             ]
           }
@@ -592,6 +606,11 @@ export type HotPerp = {
                 "kind": "account",
                 "path": "game.authority",
                 "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "game"
               }
             ]
           }
@@ -643,6 +662,11 @@ export type HotPerp = {
                 "kind": "account",
                 "path": "game.authority",
                 "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "game"
               }
             ]
           }
@@ -689,6 +713,11 @@ export type HotPerp = {
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "game"
               }
             ]
@@ -740,6 +769,11 @@ export type HotPerp = {
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "game"
               }
             ]
@@ -796,6 +830,11 @@ export type HotPerp = {
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "game"
               }
             ]
@@ -903,6 +942,11 @@ export type HotPerp = {
               {
                 "kind": "account",
                 "path": "game.authority",
+                "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
                 "account": "game"
               }
             ]
@@ -1060,6 +1104,10 @@ export type HotPerp = {
             "type": "pubkey"
           },
           {
+            "name": "gameId",
+            "type": "u64"
+          },
+          {
             "name": "players",
             "type": {
               "vec": {
@@ -1105,6 +1153,10 @@ export type HotPerp = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "gameId",
+            "type": "u64"
+          },
           {
             "name": "maxPlayers",
             "type": "u8"
