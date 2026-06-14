@@ -4,7 +4,15 @@ import { AnchorProvider, Program, web3, BN } from "@anchor-lang/core";
 import { useMemo } from "react";
 import type { HotPerp } from "./idl/hot_perp";
 import idl from "./idl/hot_perp.json";
-import { SOLANA_DEVNET_RPC, PROGRAM_ID } from "./magicblock";
+import {
+  SOLANA_DEVNET_RPC,
+  MAGIC_ROUTER_RPC,
+  PROGRAM_ID,
+  DELEGATION_PROGRAM_ID,
+  getDelegationBufferPda,
+  getDelegationRecordPda,
+  getDelegationMetadataPda,
+} from "./magicblock";
 
 export { BN } from "@anchor-lang/core";
 
@@ -37,6 +45,45 @@ export function useProgram(
     });
     return new Program<HotPerp>(idl as HotPerp, provider as any);
   }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
+}
+
+export function useErProgram(
+  solWallet: any,
+): Program<HotPerp> | null {
+  return useMemo(() => {
+    const anchorWallet = makeAnchorWallet(solWallet);
+    if (!anchorWallet) return null;
+    const connection = new web3.Connection(MAGIC_ROUTER_RPC);
+    const provider = new AnchorProvider(connection, anchorWallet as any, {
+      commitment: "confirmed",
+      skipPreflight: true,
+    });
+    return new Program<HotPerp>(idl as HotPerp, provider as any);
+  }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
+}
+
+export async function delegateGame(
+  program: Program<HotPerp>,
+  gamePda: web3.PublicKey,
+  walletPubkey: web3.PublicKey,
+) {
+  const bufferGame = getDelegationBufferPda(gamePda);
+  const delegationRecordGame = getDelegationRecordPda(gamePda);
+  const delegationMetadataGame = getDelegationMetadataPda(gamePda);
+
+  await (program.methods as any)
+    .delegateGame()
+    .accounts({
+      payer: walletPubkey,
+      game: gamePda,
+      bufferGame,
+      delegationRecordGame,
+      delegationMetadataGame,
+      ownerProgram: PROGRAM_ID,
+      delegationProgram: DELEGATION_PROGRAM_ID,
+      systemProgram: web3.SystemProgram.programId,
+    })
+    .rpc();
 }
 
 export function gamePda(authority: web3.PublicKey, gameId: number): [web3.PublicKey, number] {

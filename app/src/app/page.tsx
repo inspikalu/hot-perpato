@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
-import { useProgram, gamePda, BN } from "@/lib/anchor";
+import { useProgram, gamePda, delegateGame, BN } from "@/lib/anchor";
 import { SystemProgram } from "@solana/web3.js";
 
 type StakeMode = "free" | "buyin";
@@ -43,6 +43,8 @@ export default function Lobby() {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
+
+      await delegateGame(program, pda, adapter.publicKey);
 
       return `${adapter.publicKey.toBase58()}:${gameId}`;
     } catch (err) {

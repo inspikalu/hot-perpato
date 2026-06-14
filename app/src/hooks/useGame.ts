@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { web3 } from "@anchor-lang/core";
 import { useWallet } from "./useWallet";
 import { useProgram, gamePda } from "@/lib/anchor";
+import { getMagicRouter } from "@/lib/magicblock";
 
 export type Player = {
   id: number;
@@ -34,6 +35,28 @@ function nameForIndex(i: number, wallet: string): string {
   return wallet.slice(0, 4).toUpperCase();
 }
 
+async function sendViaRouter(
+  method: any,
+  wallet: any,
+  erConn: ReturnType<typeof getMagicRouter>,
+) {
+  const adapter = wallet?.wallet?.adapter;
+  if (!adapter?.signTransaction) throw new Error("Wallet does not support signing");
+  const tx = await method.transaction();
+  tx.feePayer = adapter.publicKey;
+  const bh = await erConn.getLatestBlockhash();
+  tx.recentBlockhash = bh.blockhash;
+  tx.lastValidBlockHeight = bh.lastValidBlockHeight;
+  const signed = await adapter.signTransaction(tx);
+  const sig = await erConn.sendRawTransaction(signed.serialize());
+  await erConn.confirmTransaction({
+    signature: sig,
+    blockhash: bh.blockhash,
+    lastValidBlockHeight: bh.lastValidBlockHeight,
+  });
+  return sig;
+}
+
 export function useGame(gameId: string) {
   const solWallet = useWallet();
   const program = useProgram(solWallet);
@@ -62,6 +85,7 @@ export function useGame(gameId: string) {
   const pollingRef = useRef(false);
   const prevPhaseRef = useRef<GamePhase>("waiting");
   const failCountRef = useRef(0);
+  const erConnRef = useRef(getMagicRouter());
 
   // Parse gameId as authority public key
   useEffect(() => {
@@ -162,16 +186,17 @@ export function useGame(gameId: string) {
     let mounted = true;
     (async () => {
       try {
-        await (program.methods as any)
-          .explodePotato()
-          .accounts({ game: gamePdaRef.current! })
-          .rpc();
+        await sendViaRouter(
+          (program.methods as any).explodePotato().accounts({ game: gamePdaRef.current! }),
+          solWallet,
+          erConnRef.current,
+        );
       } catch {
         // Maybe already exploded or timer not yet expired on-chain
       }
     })();
     return () => { mounted = false; };
-  }, [phase, timer, program]);
+  }, [phase, timer, program, solWallet]);
 
   // Poll SOL price
   useEffect(() => {
@@ -202,56 +227,58 @@ export function useGame(gameId: string) {
   const joinGame = useCallback(async () => {
     if (!program || !gamePdaRef.current || !myPubkey) return;
     try {
-      await (program.methods as any)
-        .joinGame()
-        .accounts({
+      await sendViaRouter(
+        (program.methods as any).joinGame().accounts({
           game: gamePdaRef.current,
           player: myPubkey,
-        })
-        .rpc();
+        }),
+        solWallet,
+        erConnRef.current,
+      );
     } catch (err: any) {
       const msg = err?.message ?? "";
       if (msg.includes("AlreadyJoined") || msg.includes("already in game")) {
-        // Already joined, ignore
       } else if (msg.includes("AccountNotInitialized") || msg.includes("not initialized") || msg.includes("3012")) {
-        console.warn("Game not yet created on-chain. Ensure the host has created the game.");
+        console.warn("Game not yet created on-chain.");
       } else {
         console.error("joinGame failed:", err);
       }
     }
-  }, [program, myPubkey]);
+  }, [program, myPubkey, solWallet]);
 
   const startRound = useCallback(async () => {
     if (!program || !gamePdaRef.current || !myPubkey) return;
     try {
-      await (program.methods as any)
-        .startRound()
-        .accounts({
+      await sendViaRouter(
+        (program.methods as any).startRound().accounts({
           game: gamePdaRef.current,
           authority: myPubkey,
-        })
-        .rpc();
+        }),
+        solWallet,
+        erConnRef.current,
+      );
     } catch (err) {
       console.error("startRound failed:", err);
     }
-  }, [program, myPubkey]);
+  }, [program, myPubkey, solWallet]);
 
   const passPotato = useCallback(
     async (toId: number) => {
       if (!program || !gamePdaRef.current || !myPubkey) return;
       try {
-        await (program.methods as any)
-          .passPotato(toId)
-          .accounts({
+        await sendViaRouter(
+          (program.methods as any).passPotato(toId).accounts({
             game: gamePdaRef.current,
             player: myPubkey,
-          })
-          .rpc();
+          }),
+          solWallet,
+          erConnRef.current,
+        );
       } catch (err) {
         console.error("passPotato failed:", err);
       }
     },
-    [program, myPubkey],
+    [program, myPubkey, solWallet],
   );
 
   // Watch for explosion events to show animation

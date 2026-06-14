@@ -1,4 +1,15 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  ConnectionMagicRouter,
+  DELEGATION_PROGRAM_ID,
+  MAGIC_PROGRAM_ID,
+  MAGIC_CONTEXT_ID,
+} from "@magicblock-labs/ephemeral-rollups-sdk";
+import {
+  delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
+  delegationRecordPdaFromDelegatedAccount,
+  delegationMetadataPdaFromDelegatedAccount,
+} from "@magicblock-labs/ephemeral-rollups-sdk";
 
 // Magic Router auto-routes between base layer and Ephemeral Rollup
 export const MAGIC_ROUTER_RPC = "https://devnet-router.magicblock.app";
@@ -11,8 +22,14 @@ export const PROGRAM_ID = new PublicKey("9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJ
 export const GAME_SEED = "hot_perp_game";
 export const ESCROW_SEED = "hot_perp_escrow";
 
+export { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, MAGIC_CONTEXT_ID };
+
 export function getMagicRouterConnection(): Connection {
   return new Connection(MAGIC_ROUTER_RPC, { wsEndpoint: MAGIC_ROUTER_WS });
+}
+
+export function getMagicRouter(): ConnectionMagicRouter {
+  return new ConnectionMagicRouter(MAGIC_ROUTER_RPC);
 }
 
 export function getDevnetConnection(): Connection {
@@ -31,4 +48,16 @@ export function deriveEscrowPda(game: PublicKey): [PublicKey, number] {
     [Buffer.from(ESCROW_SEED), game.toBuffer()],
     PROGRAM_ID
   );
+}
+
+export function getDelegationBufferPda(game: PublicKey): PublicKey {
+  return delegateBufferPdaFromDelegatedAccountAndOwnerProgram(game, PROGRAM_ID);
+}
+
+export function getDelegationRecordPda(game: PublicKey): PublicKey {
+  return delegationRecordPdaFromDelegatedAccount(game);
+}
+
+export function getDelegationMetadataPda(game: PublicKey): PublicKey {
+  return delegationMetadataPdaFromDelegatedAccount(game);
 }
