@@ -15,6 +15,8 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.15.4",
+    "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4"
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { AnchorProvider, Program, web3, BN } from "@anchor-lang/core";
+import { Connection, SendTransactionError } from "@solana/web3.js";
 import { useMemo } from "react";
 import type { HotPerp } from "./idl/hot_perp";
 import idl from "./idl/hot_perp.json";
@@ -32,6 +33,62 @@ function makeAnchorWallet(solWallet: any) {
   };
 }
 
+async function sendRawTx(
+  connection: Connection,
+  raw: Buffer | Uint8Array,
+  opts: any,
+): Promise<string> {
+  const sendOpts = opts
+    ? {
+        skipPreflight: opts.skipPreflight,
+        preflightCommitment: opts.preflightCommitment || opts.commitment,
+        maxRetries: opts.maxRetries,
+        minContextSlot: opts.minContextSlot,
+      }
+    : {};
+  const sig = await connection.sendRawTransaction(raw, sendOpts);
+  const status = opts?.blockhash
+    ? (await connection.confirmTransaction({ signature: sig, ...opts.blockhash }, opts.commitment)).value
+    : (await connection.confirmTransaction(sig, opts?.commitment)).value;
+  if (status.err) {
+    const failedTx = await connection.getTransaction(sig, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    const logs = failedTx?.meta?.logMessages ?? undefined;
+    throw new SendTransactionError({
+      action: "send",
+      signature: sig,
+      transactionMessage: logs
+        ? `Transaction failed`
+        : `Status: ${JSON.stringify(status)}`,
+      logs,
+    });
+  }
+  return sig;
+}
+
+function makeProvider(
+  connection: web3.Connection,
+  anchorWallet: any,
+): AnchorProvider {
+  const provider = new AnchorProvider(connection, anchorWallet, {
+    commitment: "confirmed",
+    skipPreflight: true,
+  });
+  provider.sendAndConfirm = async (tx: any, signers: any[], opts: any) => {
+    if (opts === undefined) opts = provider.opts;
+    tx.feePayer ??= provider.wallet!.publicKey;
+    if (!tx.recentBlockhash || tx.recentBlockhash === "11111111111111111111111111111111") {
+      tx.recentBlockhash = (await connection.getLatestBlockhash(opts.preflightCommitment)).blockhash;
+    }
+    if (signers) for (const s of signers) tx.partialSign(s);
+    tx = await provider.wallet!.signTransaction(tx);
+    return await sendRawTx(connection, tx.serialize(), opts);
+  };
+  return provider;
+}
+
 export function useProgram(
   solWallet: any,
 ): Program<HotPerp> | null {
@@ -39,13 +96,12 @@ export function useProgram(
     const anchorWallet = makeAnchorWallet(solWallet);
     if (!anchorWallet) return null;
     const connection = new web3.Connection(SOLANA_DEVNET_RPC);
-    const provider = new AnchorProvider(connection, anchorWallet as any, {
-      commitment: "confirmed",
-      skipPreflight: true,
-    });
+    const provider = makeProvider(connection, anchorWallet as any);
     return new Program<HotPerp>(idl as HotPerp, provider as any);
   }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
 }
+
+import { ER_DEVNET_RPC } from "./magicblock";
 
 export function useErProgram(
   solWallet: any,
@@ -54,12 +110,27 @@ export function useErProgram(
     const anchorWallet = makeAnchorWallet(solWallet);
     if (!anchorWallet) return null;
     const connection = new web3.Connection(MAGIC_ROUTER_RPC);
-    const provider = new AnchorProvider(connection, anchorWallet as any, {
-      commitment: "confirmed",
-      skipPreflight: true,
-    });
+    const provider = makeProvider(connection, anchorWallet as any);
     return new Program<HotPerp>(idl as HotPerp, provider as any);
   }, [solWallet?.wallet?.adapter?.publicKey?.toBase58()]);
+}
+
+// Read-only program connected to ER validator (for fetching delegated account state)
+// Magic Router doesn't forward getAccountInfo for delegated accounts
+let _erReadProgram: Program<HotPerp> | null = null;
+export function getErReadProgram(): Program<HotPerp> {
+  if (!_erReadProgram) {
+    const connection = new web3.Connection(ER_DEVNET_RPC);
+    // Read-only: no wallet needed, just for account.fetch()
+    const dummyWallet = {
+      publicKey: web3.PublicKey.default,
+      signTransaction: async (tx: any) => tx,
+      signAllTransactions: async (txs: any[]) => txs,
+    };
+    const provider = new AnchorProvider(connection, dummyWallet as any, { commitment: "confirmed" });
+    _erReadProgram = new Program<HotPerp>(idl as HotPerp, provider as any);
+  }
+  return _erReadProgram;
 }
 
 export async function delegateGame(

@@ -17,7 +17,7 @@ export default function Lobby() {
   const [stakeMode, setStakeMode] = useState<StakeMode>("free");
   const [players, setPlayers] = useState(4);
   const [rounds, setRounds] = useState(7);
-  const [gameId, setGameId] = useState(0);
+  const [gameId, setGameId] = useState(() => Date.now());
   const [joinCode, setJoinCode] = useState("");
   const [bombExploded, setBombExploded] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -46,6 +46,7 @@ export default function Lobby() {
 
       await delegateGame(program, pda, adapter.publicKey);
 
+      setGameId((prev) => prev + 1);
       return `${adapter.publicKey.toBase58()}:${gameId}`;
     } catch (err) {
       console.error("createGame failed:", err);

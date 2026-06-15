@@ -3,8 +3,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { web3 } from "@anchor-lang/core";
 import { useWallet } from "./useWallet";
-import { useProgram, gamePda } from "@/lib/anchor";
-import { getMagicRouter } from "@/lib/magicblock";
+import { useProgram, useErProgram, gamePda, getErReadProgram } from "@/lib/anchor";
+import { BN } from "@/lib/anchor";
+import { getMagicRouter, SOLANA_DEVNET_RPC, MAGIC_PROGRAM_ID, MAGIC_CONTEXT_ID, USDC_MINT, TOKEN_PROGRAM_ID, deriveEscrowPda, PROGRAM_ID } from "@/lib/magicblock";
+import { Connection } from "@solana/web3.js";
 
 export type Player = {
   id: number;
@@ -20,6 +22,8 @@ export type Player = {
 export type GamePhase = "waiting" | "active" | "exploded" | "finished";
 
 const POLL_MS = 2000;
+const ER_MAX_RETRIES = 3;
+const ER_RETRY_DELAY_MS = 3000;
 const MOCK_NAMES = ["ALPHA", "BEAST", "CHILL", "DEGEN"];
 
 function onChainPhase(phase: any): GamePhase {
@@ -35,6 +39,8 @@ function nameForIndex(i: number, wallet: string): string {
   return wallet.slice(0, 4).toUpperCase();
 }
 
+// Send transaction via ER router (for Ephemeral Rollup instructions)
+// Includes retry logic — Magic Router has intermittent ETIMEDOUT errors
 async function sendViaRouter(
   method: any,
   wallet: any,
@@ -42,14 +48,51 @@ async function sendViaRouter(
 ) {
   const adapter = wallet?.wallet?.adapter;
   if (!adapter?.signTransaction) throw new Error("Wallet does not support signing");
+
+  let lastErr: any;
+  for (let attempt = 0; attempt < ER_MAX_RETRIES; attempt++) {
+    try {
+      const tx = await method.transaction();
+      tx.feePayer = adapter.publicKey;
+      // Let Magic Router set the blockhash via getBlockhashForAccounts
+      await erConn.prepareTransaction(tx);
+      // Sign with wallet adapter
+      const signed = await adapter.signTransaction(tx);
+      // Send raw transaction
+      const sig = await erConn.sendRawTransaction(signed.serialize());
+      return sig;
+    } catch (err: any) {
+      lastErr = err;
+      const msg = err?.message ?? "";
+      if (msg.includes("fetch failed") || msg.includes("ETIMEDOUT") || msg.includes("Blockhash not found")) {
+        console.warn(`ER tx attempt ${attempt + 1}/${ER_MAX_RETRIES} failed: ${msg.slice(0, 80)}`);
+        if (attempt < ER_MAX_RETRIES - 1) {
+          await new Promise((r) => setTimeout(r, ER_RETRY_DELAY_MS * (attempt + 1)));
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+// Send via L1 for base-layer instructions (create, join, delegate)
+async function sendViaL1(
+  method: any,
+  wallet: any,
+  connection: Connection,
+) {
+  const adapter = wallet?.wallet?.adapter;
+  if (!adapter?.signTransaction) throw new Error("Wallet does not support signing");
   const tx = await method.transaction();
   tx.feePayer = adapter.publicKey;
-  const bh = await erConn.getLatestBlockhash();
+  const bh = await connection.getLatestBlockhash();
   tx.recentBlockhash = bh.blockhash;
   tx.lastValidBlockHeight = bh.lastValidBlockHeight;
   const signed = await adapter.signTransaction(tx);
-  const sig = await erConn.sendRawTransaction(signed.serialize());
-  await erConn.confirmTransaction({
+  const sig = await connection.sendRawTransaction(signed.serialize());
+  await connection.confirmTransaction({
     signature: sig,
     blockhash: bh.blockhash,
     lastValidBlockHeight: bh.lastValidBlockHeight,
@@ -60,9 +103,9 @@ async function sendViaRouter(
 export function useGame(gameId: string) {
   const solWallet = useWallet();
   const program = useProgram(solWallet);
+  const erProgram = useErProgram(solWallet);
   const walletStr = solWallet?.publicKey?.toBase58() ?? null;
 
-  // Parse gameId as "authority:game_code" or "authority/game_code"
   const [authorityStr, gameCodeStr] = gameId.split(/[:/]/);
   const gameCode = parseInt(gameCodeStr || "0", 10) || 0;
 
@@ -86,8 +129,13 @@ export function useGame(gameId: string) {
   const prevPhaseRef = useRef<GamePhase>("waiting");
   const failCountRef = useRef(0);
   const erConnRef = useRef(getMagicRouter());
+  const l1ConnRef = useRef(new Connection(SOLANA_DEVNET_RPC, "confirmed"));
+  const programRef = useRef(program);
+  const erProgramRef = useRef(erProgram);
 
-  // Parse gameId as authority public key
+  programRef.current = program;
+  erProgramRef.current = erProgram;
+
   useEffect(() => {
     try {
       const pk = new web3.PublicKey(authorityStr);
@@ -104,18 +152,33 @@ export function useGame(gameId: string) {
     }
   }, [gameId]);
 
-  // Poll on-chain game state
   useEffect(() => {
-    if (!gamePdaRef.current || !program) return;
+    if (!gamePdaRef.current) return;
     const pda = gamePdaRef.current;
-    const prog = program;
     let mounted = true;
 
     async function poll() {
       if (!mounted || pollingRef.current) return;
       pollingRef.current = true;
       try {
-        const game = await (prog as any).account.game.fetch(pda);
+        // Try ER validator first (for delegated accounts), fall back to L1
+        let game: any;
+        try {
+          const erRead = getErReadProgram();
+          game = await erRead.account.game.fetch(pda);
+        } catch {
+          // ER read failed — retry once before falling back to L1
+          try {
+            await new Promise((r) => setTimeout(r, 1000));
+            const erRead = getErReadProgram();
+            game = await erRead.account.game.fetch(pda);
+          } catch {
+            // Not delegated yet or ER unavailable, read from L1
+            const prog = programRef.current;
+            if (!prog) throw new Error("No program available");
+            game = await (prog as any).account.game.fetch(pda);
+          }
+        }
         if (!mounted) return;
 
         const rawState = game.state;
@@ -146,7 +209,6 @@ export function useGame(gameId: string) {
         failCountRef.current = 0;
         setGameNotFound(false);
 
-        // Timer from deadline
         if (onChainPhase(rawState) === "active") {
           const deadline = game.timerDeadline.toNumber();
           const remaining = Math.max(0, deadline - Math.floor(Date.now() / 1000));
@@ -162,7 +224,7 @@ export function useGame(gameId: string) {
 
     poll();
     return () => { mounted = false; };
-  }, [program, gameId]);
+  }, []);
 
   // Local countdown when active
   useEffect(() => {
@@ -182,12 +244,12 @@ export function useGame(gameId: string) {
 
   // Auto-explode when timer hits 0
   useEffect(() => {
-    if (phase !== "active" || timer > 0 || !program || !gamePdaRef.current) return;
+    if (phase !== "active" || timer > 0 || !erProgramRef.current || !gamePdaRef.current) return;
     let mounted = true;
     (async () => {
       try {
         await sendViaRouter(
-          (program.methods as any).explodePotato().accounts({ game: gamePdaRef.current! }),
+          (erProgramRef.current!.methods as any).explodePotato().accounts({ game: gamePdaRef.current! }),
           solWallet,
           erConnRef.current,
         );
@@ -196,7 +258,7 @@ export function useGame(gameId: string) {
       }
     })();
     return () => { mounted = false; };
-  }, [phase, timer, program, solWallet]);
+  }, [phase, timer, solWallet]);
 
   // Poll SOL price
   useEffect(() => {
@@ -225,15 +287,15 @@ export function useGame(gameId: string) {
   const myPubkey = solWallet?.wallet?.adapter?.publicKey ?? null;
 
   const joinGame = useCallback(async () => {
-    if (!program || !gamePdaRef.current || !myPubkey) return;
+    if (!programRef.current || !gamePdaRef.current || !myPubkey) return;
     try {
-      await sendViaRouter(
-        (program.methods as any).joinGame().accounts({
+      await sendViaL1(
+        (programRef.current.methods as any).joinGame().accounts({
           game: gamePdaRef.current,
           player: myPubkey,
         }),
         solWallet,
-        erConnRef.current,
+        l1ConnRef.current,
       );
     } catch (err: any) {
       const msg = err?.message ?? "";
@@ -244,13 +306,13 @@ export function useGame(gameId: string) {
         console.error("joinGame failed:", err);
       }
     }
-  }, [program, myPubkey, solWallet]);
+  }, [myPubkey, solWallet]);
 
   const startRound = useCallback(async () => {
-    if (!program || !gamePdaRef.current || !myPubkey) return;
+    if (!erProgramRef.current || !gamePdaRef.current || !myPubkey) return;
     try {
       await sendViaRouter(
-        (program.methods as any).startRound().accounts({
+        (erProgramRef.current.methods as any).startRound().accounts({
           game: gamePdaRef.current,
           authority: myPubkey,
         }),
@@ -260,14 +322,14 @@ export function useGame(gameId: string) {
     } catch (err) {
       console.error("startRound failed:", err);
     }
-  }, [program, myPubkey, solWallet]);
+  }, [myPubkey, solWallet]);
 
   const passPotato = useCallback(
     async (toId: number) => {
-      if (!program || !gamePdaRef.current || !myPubkey) return;
+      if (!erProgramRef.current || !gamePdaRef.current || !myPubkey) return;
       try {
         await sendViaRouter(
-          (program.methods as any).passPotato(toId).accounts({
+          (erProgramRef.current.methods as any).passPotato(toId).accounts({
             game: gamePdaRef.current,
             player: myPubkey,
           }),
@@ -278,7 +340,7 @@ export function useGame(gameId: string) {
         console.error("passPotato failed:", err);
       }
     },
-    [program, myPubkey, solWallet],
+    [myPubkey, solWallet],
   );
 
   // Watch for explosion events to show animation
@@ -290,6 +352,71 @@ export function useGame(gameId: string) {
     }, 2500);
     return () => clearTimeout(timeout);
   }, [phase]);
+
+  const endRound = useCallback(async () => {
+    if (!erProgramRef.current || !gamePdaRef.current || !myPubkey) return;
+    try {
+      await sendViaRouter(
+        (erProgramRef.current.methods as any).endRound().accounts({
+          game: gamePdaRef.current,
+          authority: myPubkey,
+        }),
+        solWallet,
+        erConnRef.current,
+      );
+    } catch (err) {
+      console.error("endRound failed:", err);
+    }
+  }, [myPubkey, solWallet]);
+
+  const commitAndPayout = useCallback(async () => {
+    if (!erProgramRef.current || !programRef.current || !gamePdaRef.current || !myPubkey) return;
+    try {
+      // Find the winner (uses >= to match Rust's max_by_key tie-breaking)
+      const winnerIdx = players.reduce((best, p, i) =>
+        p.score >= players[best].score ? i : best, 0);
+      const winnerWallet = new web3.PublicKey(players[winnerIdx].wallet);
+
+      // Derive escrow PDA and winner USDC ATA
+      const [escrowUsdc] = deriveEscrowPda(gamePdaRef.current);
+      const winnerUsdc = web3.PublicKey.findProgramAddressSync(
+        [winnerWallet.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), USDC_MINT.toBuffer()],
+        new web3.PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
+      )[0];
+
+      // Step 1: commitState via ER (commits latest state to L1)
+      await sendViaRouter(
+        (erProgramRef.current!.methods as any).commitState().accounts({
+          payer: myPubkey,
+          game: gamePdaRef.current,
+          magicProgram: MAGIC_PROGRAM_ID,
+          magicContext: MAGIC_CONTEXT_ID,
+        }),
+        solWallet,
+        erConnRef.current,
+      );
+      console.log("commitState sent via ER");
+
+      // Wait for state to settle on L1 before payout
+      await new Promise(r => setTimeout(r, 8000));
+
+      // Step 2: payoutWinnerL1 on L1 (game account may still be delegated)
+      const gameAuthority = new web3.PublicKey(authorityStr!);
+      await sendViaL1(
+        (programRef.current!.methods as any).payoutWinnerL1(winnerWallet, gameAuthority, new BN(gameCode)).accounts({
+          game: gamePdaRef.current,
+          escrowUsdc,
+          winnerUsdc,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        }),
+        solWallet,
+        l1ConnRef.current,
+      );
+      console.log("payoutWinnerL1 success");
+    } catch (err) {
+      console.error("commitAndPayout failed:", err);
+    }
+  }, [myPubkey, solWallet, players, authorityStr, gameCode]);
 
   return {
     phase,
@@ -309,6 +436,8 @@ export function useGame(gameId: string) {
     joinGame,
     startRound,
     passPotato,
+    endRound,
+    commitAndPayout,
     connected,
     wallet: walletStr,
     gameAddress,

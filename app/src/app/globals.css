@@ -1,18 +1,11 @@
+@import url("https://fonts.googleapis.com/css2?family=Jersey+10&display=swap");
 @import "tailwindcss";
-
-@font-face {
-  font-family: "Press Start 2P";
-  src: url("/fonts/PressStart2P.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
 
 @theme inline {
   --color-pixel-white: #f0f0f0;
   --color-pixel-black: #1a1a2e;
   --color-pixel-dark: #16213e;
-  --color-pixel-red: #ff4343;
+  --color-pixel-red: #ff6b35; /* switched to orange tint to match Flying Papers mannerisms */
   --color-pixel-blue: #00a2ff;
   --color-pixel-green: #00ff85;
   --color-pixel-yellow: #ffd700;
@@ -21,14 +14,15 @@
   --color-pixel-pink: #ff6b9d;
   --color-pixel-grey: #4a4a6a;
   --color-pixel-light: #2a2a4a;
-  --font-pixel: "Press Start 2P", monospace;
+  --font-pixel: "Jersey 10", sans-serif;
 }
 
 @layer base {
   body {
     background-color: var(--color-pixel-black);
     color: var(--color-pixel-white);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    position: relative;
+    font-family: var(--font-pixel);
   }
 }
 
@@ -90,6 +84,42 @@
       rgba(0, 0, 0, 0.08) 2px,
       rgba(0, 0, 0, 0.08) 4px
     );
+  }
+
+  /* Pixel overlay pattern (subtle) */
+  .pixel-overlay {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><rect width='8' height='8' fill='none'/><rect width='1' height='1' x='0' y='0' fill='%23ff6b35' opacity='0.06'/></svg>");
+    background-repeat: repeat;
+    mix-blend-mode: overlay;
+    opacity: 0.25;
+    z-index: 50;
+    image-rendering: pixelated;
+  }
+
+  /* Orange tint utility for banners/overlays */
+  .tint-orange {
+    background-image: linear-gradient(rgba(255,107,53,0.06), rgba(255,107,53,0.06));
+  }
+
+  /* Nearest-neighbor scaling for retro/pixel images */
+  .pixelated,
+  img.pixelated,
+  canvas.pixelated {
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+    -webkit-font-smoothing: none;
+    image-rendering: -moz-crisp-edges;
+  }
+
+  /* Hero title utility inspired by Flying Papers' large type */
+  .hero-title {
+    font-size: clamp(2rem, 8vw, 4.5rem);
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
   }
 
   .text-shadow-pixel {

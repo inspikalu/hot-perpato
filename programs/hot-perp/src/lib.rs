@@ -146,8 +146,9 @@ pub struct JoinGame<'info> {
 #[derive(Accounts)]
 pub struct DelegateGame<'info> {
     pub payer: Signer<'info>,
+    /// CHECK: Game account - ownership transferred to delegation program
     #[account(mut, del)]
-    pub game: Account<'info, Game>,
+    pub game: UncheckedAccount<'info>,
 }
 
 #[delegate]
@@ -202,6 +203,33 @@ pub struct EndRound<'info> {
     #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
     pub game: Account<'info, Game>,
     pub authority: Signer<'info>,
+}
+
+// ── Commit State (just commit, no CPI) ──
+
+#[commit]
+#[derive(Accounts)]
+pub struct CommitState<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, seeds = [GAME_SEED, game.authority.as_ref(), game.game_id.to_le_bytes().as_ref()], bump)]
+    pub game: Account<'info, Game>,
+}
+
+// ── Payout Winner on L1 (after commit) ──
+
+#[derive(Accounts)]
+pub struct PayoutWinnerL1<'info> {
+    /// CHECK: Game PDA - used only for PDA signing authority, data may be owned by delegation program
+    #[account(mut)]
+    pub game: UncheckedAccount<'info>,
+    #[account(mut)]
+    /// CHECK: Escrow token account - validated by program logic
+    pub escrow_usdc: UncheckedAccount<'info>,
+    #[account(mut)]
+    /// CHECK: Winner's token account - validated by program logic
+    pub winner_usdc: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -283,10 +311,13 @@ pub mod hot_perp {
     }
 
     pub fn delegate_game(ctx: Context<DelegateGame>) -> Result<()> {
-        let game = &ctx.accounts.game;
+        let data = ctx.accounts.game.data.borrow();
+        let game = Game::try_deserialize_unchecked(&mut &**data)?;
+        let seeds = &[GAME_SEED, game.authority.as_ref(), &game.game_id.to_le_bytes()];
+        drop(data);
         ctx.accounts.delegate_game(
             &ctx.accounts.payer,
-            &[GAME_SEED, game.authority.as_ref(), &game.game_id.to_le_bytes()],
+            seeds,
             DelegateConfig {
                 validator: ctx.remaining_accounts.first().map(|acc| acc.key()),
                 commit_frequency_ms: 10_000,
@@ -479,6 +510,53 @@ pub mod hot_perp {
 
         let game_key = game.key();
         let seeds = &[ESCROW_SEED, game_key.as_ref(), &[escrow_bump.1]];
+        let signer_seeds = &[&seeds[..]];
+
+        anchor_spl::token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                Transfer {
+                    from: ctx.accounts.escrow_usdc.to_account_info(),
+                    to: ctx.accounts.winner_usdc.to_account_info(),
+                    authority: ctx.accounts.game.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            escrow_token.amount,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn commit_state(ctx: Context<CommitState>) -> Result<()> {
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit(&[ctx.accounts.game.to_account_info()])
+        .build_and_invoke()?;
+        Ok(())
+    }
+
+    pub fn payout_winner_l1(ctx: Context<PayoutWinnerL1>, winner_wallet: Pubkey, game_authority: Pubkey, game_id: u64) -> Result<()> {
+        let game = &ctx.accounts.game;
+
+        let winner_token = TokenAccount::try_deserialize_unchecked(
+            &mut &ctx.accounts.winner_usdc.data.borrow()[..],
+        )?;
+        require!(winner_token.owner == winner_wallet, GameError::InvalidPlayerIndex);
+
+        let escrow_token = TokenAccount::try_deserialize_unchecked(
+            &mut &ctx.accounts.escrow_usdc.data.borrow()[..],
+        )?;
+
+        // Use game PDA seeds for signing (game PDA is the escrow token account owner)
+        let game_bump = anchor_lang::prelude::Pubkey::find_program_address(
+            &[GAME_SEED, game_authority.as_ref(), &game_id.to_le_bytes()],
+            &crate::ID,
+        );
+        let seeds = &[GAME_SEED, game_authority.as_ref(), &game_id.to_le_bytes(), &[game_bump.1]];
         let signer_seeds = &[&seeds[..]];
 
         anchor_spl::token::transfer(

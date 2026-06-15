@@ -312,6 +312,41 @@ export type HotPerp = {
           "writable": true
         },
         {
+          "name": "game",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  111,
+                  116,
+                  95,
+                  112,
+                  101,
+                  114,
+                  112,
+                  95,
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game.authority",
+                "account": "game"
+              },
+              {
+                "kind": "account",
+                "path": "game.game_id",
+                "account": "game"
+              }
+            ]
+          }
+        },
+        {
           "name": "ownerProgram",
           "address": "9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJeEV5w"
         },

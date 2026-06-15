@@ -33,6 +33,7 @@ export default function RootLayout({
             {children}
           </main>
         </WalletProvider>
+        <div className="pixel-overlay" aria-hidden="true" />
       </body>
     </html>
   );

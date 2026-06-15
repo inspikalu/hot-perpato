@@ -15,10 +15,11 @@ export default function GamePage() {
     phase, currentHolder, timer, round, totalRounds, maxPlayers,
     players, solPrice, positionPnl, showExplosion, explodedPlayer,
     isHolding, isAuthority, hasJoined, gameNotFound, joinGame, startRound, passPotato,
+    endRound, commitAndPayout,
     connected, wallet, gameAddress,
   } = useGame(gameId);
 
-  const { sideBet, loading, executeSideBet, initSideBet } = useFlashSession(solPrice);
+  const { sideBet, loading, executeSideBet, initSideBet, signAndSendSessionTx, pendingSessionTx, pendingSessionType } = useFlashSession(solPrice);
 
   return (
     <div className="flex flex-col flex-1 p-4 relative overflow-hidden">
@@ -49,6 +50,9 @@ export default function GamePage() {
         leverage={sideBet.leverage}
         onInit={initSideBet}
         onExecute={executeSideBet}
+        onSignSession={signAndSendSessionTx}
+        pendingSessionTx={pendingSessionTx}
+        pendingSessionType={pendingSessionType}
         loading={loading}
       />
       {/* Timer */}
@@ -233,6 +237,19 @@ export default function GamePage() {
             >
               -1 POINT
             </motion.p>
+            {isAuthority && (
+              <motion.button
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 1 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={endRound}
+                className="mt-4 pixel-border bg-pixel-blue px-6 py-3 font-pixel text-xs text-pixel-white pixel-btn cursor-pointer"
+              >
+                END ROUND
+              </motion.button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -256,9 +273,19 @@ export default function GamePage() {
                 </div>
               ))}
             </div>
+            {isAuthority && (
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={commitAndPayout}
+                className="mt-4 pixel-border bg-pixel-green px-6 py-3 font-pixel text-xs text-pixel-black pixel-btn cursor-pointer"
+              >
+                COMMIT & PAYOUT
+              </motion.button>
+            )}
             <a
               href="/"
-              className="mt-6 pixel-border bg-pixel-blue px-6 py-3 font-pixel text-xs text-pixel-white pixel-btn inline-block"
+              className="mt-4 pixel-border bg-pixel-blue px-6 py-3 font-pixel text-xs text-pixel-white pixel-btn inline-block"
             >
               BACK TO LOBBY
             </a>

@@ -5,11 +5,16 @@ import { HotPerp } from "../target/types/hot_perp";
 import { expect } from "chai";
 
 const GAME_SEED = Buffer.from("hot_perp_game");
+const PROGRAM_ID = new PublicKey("9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJeEV5w");
 
-function gamePda(authority: PublicKey): [PublicKey, number] {
+let gameIdCounter = 0;
+
+function gamePda(authority: PublicKey, gameId: number): [PublicKey, number] {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(gameId));
   return PublicKey.findProgramAddressSync(
-    [GAME_SEED, authority.toBuffer()],
-    new PublicKey("9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJeEV5w")
+    [GAME_SEED, authority.toBuffer(), buf],
+    PROGRAM_ID
   );
 }
 
@@ -62,24 +67,33 @@ describe("hot_perp", () => {
   const player2 = Keypair.generate();
   const player3 = Keypair.generate();
 
-  const config = {
-    maxPlayers: 4,
-    totalRounds: 3,
-    stakeMode: stakeModeFree(),
-    buyInAmount: new BN(0),
-  };
+  // Each test gets a unique game ID
+  function nextGameId(): number {
+    return ++gameIdCounter;
+  }
+
+  function makeConfig(gameId: number) {
+    return {
+      gameId: new BN(gameId),
+      maxPlayers: 4,
+      totalRounds: 3,
+      stakeMode: stakeModeFree(),
+      buyInAmount: new BN(0),
+    };
+  }
 
   // Players in game order (as they'll appear in the players vec)
   const allPlayers = [player1, player2, player3];
+  const mainGameId = nextGameId();
 
   before(async () => {
     await fundAccounts(provider, [authority, player1, player2, player3]);
   });
 
   it("creates a game", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     await program.methods
-      .createGame(config)
+      .createGame(makeConfig(mainGameId))
       .accounts({
         game: pda,
         user: authority.publicKey,
@@ -95,7 +109,7 @@ describe("hot_perp", () => {
   });
 
   it("allows players to join", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
 
     for (const player of allPlayers) {
       await program.methods
@@ -114,7 +128,7 @@ describe("hot_perp", () => {
   });
 
   it("rejects duplicate join", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     try {
       await program.methods
         .joinGame()
@@ -131,9 +145,11 @@ describe("hot_perp", () => {
     const freshAuth = Keypair.generate();
     await fundAccounts(provider, [freshAuth]);
 
-    const [pda] = gamePda(freshAuth.publicKey);
+    const freshGameId1 = nextGameId();
+    const [pda] = gamePda(freshAuth.publicKey, freshGameId1);
     await program.methods
       .createGame({
+        gameId: new BN(freshGameId1),
         maxPlayers: 2,
         totalRounds: 3,
         stakeMode: stakeModeFree(),
@@ -174,7 +190,7 @@ describe("hot_perp", () => {
   });
 
   it("starts a round", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
 
     await program.methods
       .startRound()
@@ -192,10 +208,11 @@ describe("hot_perp", () => {
   it("rejects start with < 2 players", async () => {
     const freshAuth = Keypair.generate();
     await fundAccounts(provider, [freshAuth]);
-    const [pda] = gamePda(freshAuth.publicKey);
+    const freshGameId2 = nextGameId();
+    const [pda] = gamePda(freshAuth.publicKey, freshGameId2);
 
     await program.methods
-      .createGame(config)
+      .createGame(makeConfig(freshGameId2))
       .accounts({
         game: pda,
         user: freshAuth.publicKey,
@@ -217,7 +234,7 @@ describe("hot_perp", () => {
   });
 
   it("allows passing the potato", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     const game = await program.account.game.fetch(pda);
     const holderIdx = game.currentHolder as number;
     // holderIdx maps to allPlayers (player2 at index 1)
@@ -236,7 +253,7 @@ describe("hot_perp", () => {
   });
 
   it("rejects pass from non-holder", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     const game = await program.account.game.fetch(pda);
     const holderIdx = game.currentHolder as number;
     const nonHolder = allPlayers.find((_, i) => i !== holderIdx)!;
@@ -254,7 +271,7 @@ describe("hot_perp", () => {
   });
 
   it("rejects pass to self", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     const game = await program.account.game.fetch(pda);
     const holderIdx = game.currentHolder as number;
     const holder = allPlayers[holderIdx];
@@ -272,7 +289,7 @@ describe("hot_perp", () => {
   });
 
   it("rejects explode when timer not expired", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
     const game = await program.account.game.fetch(pda);
     expect(game.state).to.deep.equal({ active: {} });
 
@@ -288,7 +305,7 @@ describe("hot_perp", () => {
   });
 
   it("explodes and scores correctly", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
 
     // Advance clock past 30s deadline
     await warpClock(provider, 35);
@@ -315,7 +332,7 @@ describe("hot_perp", () => {
   });
 
   it("ends round and transitions to waiting", async () => {
-    const [pda] = gamePda(authority.publicKey);
+    const [pda] = gamePda(authority.publicKey, mainGameId);
 
     await program.methods
       .endRound()
@@ -336,10 +353,11 @@ describe("hot_perp", () => {
     ];
     await fundAccounts(provider, [freshAuth, ...freshPlayers]);
 
-    const [pda] = gamePda(freshAuth.publicKey);
+    const freshGameId3 = nextGameId();
+    const [pda] = gamePda(freshAuth.publicKey, freshGameId3);
 
     await program.methods
-      .createGame(config)
+      .createGame(makeConfig(freshGameId3))
       .accounts({
         game: pda,
         user: freshAuth.publicKey,

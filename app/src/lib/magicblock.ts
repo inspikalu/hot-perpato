@@ -21,6 +21,8 @@ export const ER_VALIDATOR = new PublicKey("MAS1Dt9qreoRMQ14YQuhg8UTZMMzDdKhmkZME
 export const PROGRAM_ID = new PublicKey("9y5B6n8Lq8HipGsuwE7TrTW31y8T49xtFrZstYJeEV5w");
 export const GAME_SEED = "hot_perp_game";
 export const ESCROW_SEED = "hot_perp_escrow";
+export const USDC_MINT = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 export { DELEGATION_PROGRAM_ID, MAGIC_PROGRAM_ID, MAGIC_CONTEXT_ID };
 
@@ -30,6 +32,12 @@ export function getMagicRouterConnection(): Connection {
 
 export function getMagicRouter(): ConnectionMagicRouter {
   return new ConnectionMagicRouter(MAGIC_ROUTER_RPC);
+}
+
+// Direct connection to ER validator for reading delegated account state
+// Magic Router doesn't forward getAccountInfo for delegated accounts
+export function getErValidatorConnection(): Connection {
+  return new Connection(ER_DEVNET_RPC, { wsEndpoint: ER_DEVNET_WS });
 }
 
 export function getDevnetConnection(): Connection {

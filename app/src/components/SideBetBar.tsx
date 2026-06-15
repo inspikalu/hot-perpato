@@ -12,15 +12,18 @@ type Props = {
   leverage: number;
   onInit: (type: "LONG" | "SHORT") => void;
   onExecute: (amount: string, leverage: number, type: "LONG" | "SHORT") => void;
+  onSignSession: () => void;
+  pendingSessionTx: string | null;
+  pendingSessionType: "LONG" | "SHORT" | null;
   loading: boolean;
 };
 
-export function SideBetBar({ solPrice, positionPnl, sideBetActive, tradeType, entryPrice, leverage, onInit, onExecute, loading }: Props) {
+export function SideBetBar({ solPrice, positionPnl, sideBetActive, tradeType, entryPrice, leverage, onInit, onExecute, onSignSession, pendingSessionTx, pendingSessionType, loading }: Props) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("10");
   const [lev, setLev] = useState(100);
 
-  if (!sideBetActive && !open) {
+  if (!sideBetActive && !open && !pendingSessionTx) {
     return (
       <div className="flex justify-center gap-3 mb-4">
         <motion.button
@@ -40,6 +43,22 @@ export function SideBetBar({ solPrice, positionPnl, sideBetActive, tradeType, en
           className="pixel-border-red bg-pixel-red/20 px-4 py-2 font-pixel text-[8px] text-pixel-red pixel-btn cursor-pointer disabled:opacity-40"
         >
           SHORT SIDE-BET
+        </motion.button>
+      </div>
+    );
+  }
+
+  if (pendingSessionTx && pendingSessionType) {
+    return (
+      <div className="flex justify-center gap-3 mb-4">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onSignSession}
+          disabled={loading}
+          className="pixel-border-yellow bg-pixel-yellow/20 px-4 py-2 font-pixel text-[8px] text-pixel-yellow pixel-btn cursor-pointer disabled:opacity-40"
+        >
+          {loading ? "..." : `SIGN ${pendingSessionType} SESSION`}
         </motion.button>
       </div>
     );
